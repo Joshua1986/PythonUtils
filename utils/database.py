@@ -199,43 +199,8 @@ class database:
         # self.cur.close()
         self.conn.close()
 
-    # 如果发现我的租车公司或者司机下面，挂载了其他的司机和车辆，会直接delete掉
-    def clear_data_from_others(self):
-        sql = 1
-        with closing(self.conn.cursor()) as cur:
-            cur.execute(sql)
-            self.logger.info(sql)
-            index = cur.description
-            index = [x[0] for x in index]
-            self.logger.info(index)
-            result = []
-            for res in cur.fetchall():
-                row = {}
-                for ifOrderInfo in range(len(index)):
-                    row[index[ifOrderInfo]] = res[ifOrderInfo]
-                result.append(row)
-            return result
-
-    # 如果发现我的租车公司、司机、车辆信息被修改，将删除修改操作者cboss的一切权限，账号永久封禁
-    def delete_illegal_users(self):
-        sql = 1
-        with closing(self.conn.cursor()) as cur:
-            cur.execute(sql)
-            self.logger.info(sql)
-            index = cur.description
-            index = [x[0] for x in index]
-            self.logger.info(index)
-            result = []
-            for res in cur.fetchall():
-                row = {}
-                for ifOrderInfo in range(len(index)):
-                    row[index[ifOrderInfo]] = res[ifOrderInfo]
-                result.append(row)
-            return result
 
 if __name__ == "__main__":
     pass
-
-
 
 
