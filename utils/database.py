@@ -1,34 +1,33 @@
 # coding=utf-8
-import logging
-import logger
+
 from contextlib import closing
 import MySQLdb
 import time
 import datetime
 from decimal import Decimal
+from application import app
 from _mysql_exceptions import OperationalError
 
 
-class database:
-    def __init__(self, host="127.0.0.1", user='root', passwd='pwd123456', port=3306, db="whatif", logger="whatif"):
+class Database:
+    def __init__(self, host=app.config["DB_HOST"], user=app.config["DB_USER"], passwd=app.config["DB_PWD"], port=app.config["DB_PORT"], db=app.config["DB_DEFAULT"]):
         try:
             self.conn = MySQLdb.connect(host=host, user=user, passwd=passwd, port=port,  db=db, charset='utf8')
         except OperationalError:
+            app.logger.error("db conn error")
             time.sleep(5)
             self.conn = MySQLdb.connect(host=host, user=user, passwd=passwd, port=port,  db=db, charset='utf8')
-        finally:
-            self.logger = logging.getLogger(logger)
 
-    # def __del__(self):
-    #     # self.cur.close()
-    #     self.conn.close()
+    def __del__(self):
+        # self.cur.close()
+        self.conn.close()
 
     # 基础方法，用来执行任意SQL
     def execute_sql(self, sql):
         res = []
         try:
-            self.logger.info("SQL to be executed:")
-            self.logger.info(sql)
+            app.logger.info("SQL to be executed:")
+            app.logger.info(sql)
             with closing(self.conn.cursor()) as cur:
                 if type(sql) == list:
                     for esql in sql:
@@ -38,10 +37,10 @@ class database:
                     cur.execute(sql)
                     res.append(cur.fetchall())
                 else:
-                    self.logger.error("The type of sql is wrong, check the sql below:\n{0}".format(sql))
+                    app.logger.error("The type of sql is wrong, check the sql below:\n{0}".format(sql))
                 self.conn.commit()
         except MySQLdb.Error, e:
-            self.logger.error("Mysql Error : {0}".format(e.args))
+            app.logger.error("Mysql Error : {0}".format(e.args))
         finally:
             return res
 
@@ -50,19 +49,19 @@ class database:
         try:
             with closing(self.conn.cursor()) as cur:
                 count = cur.execute(sql)
-                self.logger.info(u"共查询到{0}条数据".format(count))
+                app.logger.info(u"共查询到{0}条数据".format(count))
                 s = []
                 if count == 0:
-                    self.logger.info(u"没有查询到数据，返回空列表！")
+                    app.logger.info(u"没有查询到数据，返回空列表！")
                     return []
                 results = cur.fetchall()
                 for ifOrderInfo in results:
                     s.append(ifOrderInfo)
 
-                self.logger.info(s)
+                    app.logger.info(s)
                 return [x[0] for x in s]
         except MySQLdb.Error, e:
-            self.logger.error("Mysql Error : {0}".format(e.args))
+            app.logger.error("Mysql Error : {0}".format(e.args))
 
     # 返回一个表中的特定字段的第一个数据
     # 例子：
@@ -71,13 +70,15 @@ class database:
     # return：
     # 厦门碧水新村度假酒店7
     def select_sql_with_stm(self, column, stm=""):
-        assert ("." in column)
-        assert isinstance(column, (str, str, str))
+        if "." not in column:
+            raise RuntimeError("Wrong column parameter without \".\"")
+        if not isinstance(column, (str, str, str)):
+            raise RuntimeError("Wrong type of column!")
 
         stm = str("where " + stm) if stm else ""
         s = str(column).split(".")
         sql = "select %s from %s %s" % (s[1], s[0], stm)
-        self.logger.info(sql)
+        app.logger.info(sql)
         result = self.select_sql(sql)
         if not result:
             return ''
@@ -91,14 +92,16 @@ class database:
     # return：
     # ['厦门碧水新村度假酒店7', '董沐测试']
     def select_sql_with_stm_whole(self, column, stm=""):
-        assert ("." in column)
-        assert isinstance(column, (str, str, str))
+        if "." not in column:
+            raise RuntimeError("Wrong column parameter without \".\"")
+        if not isinstance(column, (str, str, str)):
+            raise RuntimeError("Wrong type of column!")
 
         stm = str("where " + stm) if stm else ""
         s = str(column).split(".")
         sql = "select %s from %s %s" % (s[1], s[0], stm)
         #     sql = "select %s from %s %s order by %s"%(s[1],s[0],stm,s[1])
-        self.logger.info(sql)
+        app.logger.info(sql)
         return self.select_sql(sql)
 
     # 输入一个dictionary格式的数据，向指定的数据库中插入一条数据
@@ -108,7 +111,8 @@ class database:
     # return：
     # 插入的数据
     def insert_sql(self, table, sql_dict):
-        assert isinstance(sql_dict, dict)
+        if not isinstance(sql_dict, dict):
+            raise RuntimeError("Wrong type of column!")
 
         key_string = ",".join(sql_dict.keys())
         value_list = []
@@ -116,19 +120,20 @@ class database:
             value_list.append(str(sql_dict[ifOrderInfo]))
         value_string = "'{0}'".format("','".join(value_list))
         sql = "INSERT INTO {0} ({1}) VALUES ({2})".format(str(table), key_string, value_string)
-        self.logger.info(sql)
+        app.logger.info(sql)
         return self.execute_sql(sql)
 
     # 查询表中数据，返回一个dict格式的数据，只限于一条数据
+    # 增加自动修正格式的功能，后续视情况可增减或修改转换规则：Decimal -> float, datetime -> string， long -> int
     # 例子：
     # select_single_to_dict_one("dsp_info")
     #
     # return：
-    # {'XXXX_account': u'gg', 'status': 0, 'update_time': None, 'dsp_phone': u''......
+    # {'qunar_account': u'gg', 'status': 0, 'update_time': None, 'dsp_phone': u''......
     def select_single_to_dict_one(self, table, columns="*", stm=""):
         stm = str("where " + stm) if stm else ""
         sql = "select {0} from {1} {2}".format(columns, table, stm)
-        self.logger.info(sql)
+        app.logger.info(sql)
         result = self.query(sql)
         for key in result[0]:
             if isinstance(result[0][key], datetime.datetime):
@@ -145,11 +150,11 @@ class database:
     # select_single_to_list("dsp_info")
     #
     # return：
-    # [{'XXXX_account': u'gg', 'status': 0, 'update_time': None, 'dsp_phone': u''......]
+    # [{'qunar_account': u'gg', 'status': 0, 'update_time': None, 'dsp_phone': u''......]
     def select_to_list(self, table, columns="*", stm=""):
         stm = str("where " + stm) if stm else ""
         sql = "select {0} from {1} {2}".format(columns, table, stm)
-        self.logger.info(sql)
+        app.logger.info(sql)
         results = self.query(sql)
         if results:
             for result in results:
@@ -168,17 +173,15 @@ class database:
     def query(self, sql):
         with closing(self.conn.cursor()) as cur:
             cur.execute(sql)
-            self.logger.info(sql)
             index = cur.description
             index = [x[0] for x in index]
-            self.logger.info(index)
+            app.logger.info(index)
             result = []
             for res in cur.fetchall():
                 row = {}
                 for ifOrderInfo in range(len(index)):
                     row[index[ifOrderInfo]] = res[ifOrderInfo]
                 result.append(row)
-            self.logger.info(result)
             return result
 
     # 给数据库改名的优化方法
@@ -193,14 +196,8 @@ class database:
             self.execute_sql("RENAME TABLE " + ",".join(ts))
             self.execute_sql("DROP DATABASE {0};".format(old_db))
         else:
-            self.logger.error(u"Fail to rename {0}".format(old_db))
+            app.logger.error(u"Fail to rename {0}".format(old_db))
 
     def close_connection(self):
         # self.cur.close()
         self.conn.close()
-
-
-if __name__ == "__main__":
-    pass
-
-
